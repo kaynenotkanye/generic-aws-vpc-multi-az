@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Region agnostic multi-AZ VPC build out
+Parameters:
+  CidrBlockNewVPC:
+    Description: CIDR Range for new VPC
+    Type: String
+    Default: 10.0.0.0/24
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  CidrBlockSubnet1:
+    Description: CIDR Range for Subnet1
+    Type: String
+    Default: 10.0.0.0/26
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  CidrBlockSubnet2:
+    Description: CIDR Range for Subnet2
+    Type: String
+    Default: 10.0.0.64/26
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  CidrBlockSubnet3:
+    Description: CIDR Range for Subnet3
+    Type: String
+    Default: 10.0.0.128/26
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  CidrBlockSubnet4:
+    Description: CIDR Range for Subnet4
+    Type: String
+    Default: 10.0.0.192/26
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+Resources:
+  NewVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref CidrBlockNewVPC
+      InstanceTenancy: default
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+  PublicSubnetAZ1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: NewVPC
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Ref CidrBlockSubnet1
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      VpcId: !Ref NewVPC
+  PublicSubnetAZ2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Ref CidrBlockSubnet2
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      VpcId: !Ref NewVPC
+  PrivateSubnetAZ1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      CidrBlock: !Ref CidrBlockSubnet3
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      VpcId: !Ref NewVPC
+  PrivateSubnetAZ2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      CidrBlock: !Ref CidrBlockSubnet4
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      VpcId: !Ref NewVPC
+  CfnIG:
+    Type: 'AWS::EC2::InternetGateway'
+    DependsOn: NewVPC
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+  GatewayToInternet:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    DependsOn:
+      - NewVPC
+      - CfnIG
+    Properties:
+      VpcId: !Ref NewVPC
+      InternetGatewayId: !Ref CfnIG
+  CfnACL:
+    Type: 'AWS::EC2::NetworkAcl'
+    DependsOn: NewVPC
+    Properties:
+      VpcId: !Ref NewVPC
+  CfnRT:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      VpcId: !Ref NewVPC
+  PrivateRouteTable1:
+    Type: 'AWS::EC2::RouteTable'
+    DependsOn: NewVPC
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      VpcId: !Ref NewVPC
+  PrivateRouteTable2:
+    Type: 'AWS::EC2::RouteTable'
+    DependsOn: NewVPC
+    Properties:
+      Tags:
+        - Key: stackname
+          Value: !Ref 'AWS::StackName'
+      VpcId: !Ref NewVPC
+  aclEgress:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: 'true'
+      Protocol: '-1'
+      RuleAction: allow
+      RuleNumber: '100'
+      NetworkAclId: !Ref CfnACL
+  aclIngress:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: '-1'
+      RuleAction: allow
+      RuleNumber: '100'
+      NetworkAclId: !Ref CfnACL
+  subnetaclPublicSubnetAZ1:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref CfnACL
+      SubnetId: !Ref PublicSubnetAZ1
+  subnetaclPublicSubnetAZ2:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref CfnACL
+      SubnetId: !Ref PublicSubnetAZ2
+  subnetaclPrivateSubnetAZ1:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref CfnACL
+      SubnetId: !Ref PrivateSubnetAZ1
+  subnetaclPrivateSubnetAZ2:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref CfnACL
+      SubnetId: !Ref PrivateSubnetAZ2
+  subnetroutePublicSubnetAZ1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref CfnRT
+      SubnetId: !Ref PublicSubnetAZ1
+  subnetroutePublicSubnetAZ2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref CfnRT
+      SubnetId: !Ref PublicSubnetAZ2
+  subnetroutePrivateSubnetAZ1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnetAZ1
+  subnetroutePrivateSubnetAZ2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnetAZ2
+  route1:
+    DependsOn: GatewayToInternet
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref CfnRT
+      GatewayId: !Ref CfnIG
+  EIPPrivateSubnet1:
+    Type: 'AWS::EC2::EIP'
+    DependsOn: GatewayToInternet
+    Properties:
+      Domain: VPC
+  EIPPrivateSubnet2:
+    Type: 'AWS::EC2::EIP'
+    DependsOn: GatewayToInternet
+    Properties:
+      Domain: VPC
+  PublicSubnet1NATGW:
+    DependsOn:
+      - GatewayToInternet
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt
+        - EIPPrivateSubnet1
+        - AllocationId
+      SubnetId: !Ref PublicSubnetAZ1
+  PublicSubnet2NATGW:
+    DependsOn:
+      - GatewayToInternet
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt
+        - EIPPrivateSubnet2
+        - AllocationId
+      SubnetId: !Ref PublicSubnetAZ2
+  PrivateSubnet1NATGWRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet1NATGW
+  PrivateSubnet2NATGWRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet2NATGW
+Outputs:
+  VPCID:
+    Value: !Ref NewVPC
+    Description: VPC ID
+  PublicSubnetAZ1ID:
+    Value: !Ref PublicSubnetAZ1
+    Description: Subnet ID for PublicSubnetAZ1
+  PublicSubnetAZ2ID:
+    Value: !Ref PublicSubnetAZ2
+    Description: Subnet ID for PublicSubnetAZ2
+  PrivateSubnetAZ1ID:
+    Value: !Ref PrivateSubnetAZ1
+    Description: Subnet ID for PrivateSubnetAZ1
+  PrivateSubnetAZ2ID:
+    Value: !Ref PrivateSubnetAZ2
+    Description: Subnet ID for PrivateSubnetAZ2
